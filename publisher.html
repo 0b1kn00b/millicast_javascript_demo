@@ -323,7 +323,7 @@
       //handle stereo request.
       if(stereo && codec == 'h264' || stereo && codec == 'vp8'){
         a = {
-          channelCount: {min:2},
+          channelCount: {ideal:2},
           echoCancellation: false
         }
       }
