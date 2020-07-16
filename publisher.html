@@ -103,17 +103,27 @@
   //Millicast required info.
   let url;// path to Millicast Server - Returned from API
   let jwt;//authorization token - Returned from API
+  
+  // You can add them to the url as a prameter
+  // ex:( /publisher.html?token=8e16b5fff53e3&streamName=feed1&accountId=L7c3p0 ).
+  // hard code it here, or enter it at runtime on the respective fields.
 
-  // hard code it here, or enter it at runtime on the field.
-  let token;
-  let streamName;
-  let accountId;
+  let params     = new URLSearchParams(document.location.search.substring(1));
+  let token     = params.get('token');
+  let streamName  = params.get('streamName');
+  let accountId  = params.get('accountId');
 
   let codec = 'h264'; //'vp8', 'vp9'
   let stereo = true;//true for stereo
 
-  // You can add them to the url as a prameter
-  // ex:( /publisher.html?token=8e16b5fff53e3&streamName=feed1&accountId=L7c3p0 ).
+  let viewURL = params.get('viewURL');//[optional] if not specified will use local path to viewer.html
+
+  //internal use: check if its a github preview
+  if( document.location.href.indexOf('htmlpreview.github.io') > -1 ){
+    // fix for viewer preview
+    if(!viewURL) viewURL = 'https://htmlpreview.github.io/?https://github.com/millicast/millicast_javascript_demo/blob/master/viewer.html';
+  }
+  
   //media stream object from local user mic and camera.
   let stream;
   //Ice Servers:
@@ -373,7 +383,7 @@
     //if no viewer stream id is provided, path to viewer not shown.
     if (!!accountId) {
       let vTxt = document.getElementById('viewerUrl');
-      let href = (location.href).split('?')[0];
+      let href = !!viewURL ? viewURL : (location.href).split('?')[0];
       console.log('href:', href, ', indexOF ', href.indexOf('htm'), 'lastindex /', href.lastIndexOf('/'));
       if (href.indexOf('htm') > -1) {
         href = href.substring(0, href.lastIndexOf('/') + 1);

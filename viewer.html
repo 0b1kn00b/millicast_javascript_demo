@@ -43,6 +43,14 @@
 
 <script>
   let params     = new URLSearchParams(document.location.search.substring(1));
+  //internal use: check if its a github preview
+  if( document.location.href.indexOf('htmlpreview.github.io') > -1 ){
+    let a = (document.location.href).split('?');
+    a.shift();//remove github ref.
+    let href = new URL( a.join('?') );
+    params = new URLSearchParams(href.search.substring(1));//reset params
+  }
+  //
   let accountId  = params.get('accountId');
   let streamName = params.get('streamName');
   console.log('Millicast Viewer Stream: ', streamName);
