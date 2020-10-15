@@ -103,27 +103,25 @@
   //Millicast required info.
   let url;// path to Millicast Server - Returned from API
   let jwt;//authorization token - Returned from API
-  
-  // You can add them to the url as a prameter
-  // ex:( /publisher.html?token=8e16b5fff53e3&streamName=feed1&accountId=L7c3p0 ).
-  // hard code it here, or enter it at runtime on the respective fields.
 
-  let params     = new URLSearchParams(document.location.search.substring(1));
-  let token     = params.get('token');
-  let streamName  = params.get('streamName');
-  let accountId  = params.get('accountId');
+  // (Millicast API Info) hard code it here, or enter it at runtime on the field.
+  let token;
+  let streamName;
+  let accountId;
 
   let codec = 'h264'; //'vp8', 'vp9'
   let stereo = true;//true for stereo
-
-  let viewURL = params.get('viewURL');//[optional] if not specified will use local path to viewer.html
-
-  //internal use: check if its a github preview
-  if( document.location.href.indexOf('htmlpreview.github.io') > -1 ){
-    // fix for viewer preview
-    if(!viewURL) viewURL = 'https://htmlpreview.github.io/?https://github.com/millicast/millicast_javascript_demo/blob/master/viewer.html';
-  }
+  let useSimulcast = false;//true for simulcast. (chrome only)
   
+  let pc;//peer connection
+  let ws;//live websocket
+  let isBroadcasting = false;
+
+  //UI
+  let btn = document.getElementById('publishBtn');
+
+  // You can add them to the url as a prameter
+  // ex:( /publisher.html?token=8e16b5fff53e3&streamName=feed1&accountId=L7c3p0 ).
   //media stream object from local user mic and camera.
   let stream;
   //Ice Servers:
@@ -153,6 +151,18 @@
       });
   }
 
+  function stopBroadcast(){
+    console.log('Stop Broadcasting');
+
+    pc.close();
+    pc = null;
+    ws.close();
+    ws = null;
+    
+    isBroadcasting = false;
+    onBroadcasting();
+  }
+
   function connect() {
 
     return new Promise( (resolve, reject) => {
@@ -160,7 +170,7 @@
         console.log('connect to API - url:', url)
         return updateMillicastAuth()
           .then(d => {
-            console.log('auth info:', d);
+            // console.log('auth info:', d);
             connect();
           })
           .catch(e => {
@@ -172,8 +182,8 @@
 
       console.log('connecting to: ', url + '?token=' + jwt);//token
       //create Peer connection object, add TURN servers for fallback.
-      console.log('iceservers: ', iceServers);
-      let pc = new RTCPeerConnection({iceServers: iceServers, bundlePolicy: "max-bundle"});
+      // console.log('iceservers: ', iceServers);
+      pc = new RTCPeerConnection({iceServers: iceServers, bundlePolicy: "max-bundle"});
       //add media to connection
       if(!stream) {
         reject('Error: Media was not detected!');
@@ -182,49 +192,54 @@
       }
       stream.getTracks()
         .forEach(track => {
-          console.log('audio track: ', track);
+          // console.log('audio track: ', track);
           pc.addTrack(track, stream)
         });
 
       //connect with Websockets for handshake to media server.
-      let ws    = new WebSocket(url + '?token=' + jwt);//token
+      ws    = new WebSocket(url + '?token=' + jwt);//token
       ws.onopen = function () {
         //Connect to our media server via WebRTC
         console.log('ws::onopen ', jwt);//token
         //create a WebRTC offer to send to the media server
-        let offer = pc.createOffer({
-                                    offerToReceiveAudio: true,
-                                    offerToReceiveVideo: true
-                                  }).then(desc => {
-          console.log('createOffer Success!');
+        let offer = pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true })
+          .then(desc => {
+            console.log('createOffer Success!');
 
-          //support for stereo
-          desc.sdp = desc.sdp.replace("useinbandfec=1", "useinbandfec=1; stereo=1");
-          //set local description and send offer to media server via ws.
-          pc.setLocalDescription(desc)
-            .then(() => {
-              console.log('setLocalDescription Success !:', streamName);
-              //set required information for media server.
-              let data    = {
-                name:  streamName,
-                sdp:   desc.sdp,
-                codec: codec//'h264'
-              }
-              //create payload
-              let payload = {
-                type:    "cmd",
-                transId: Math.random() * 10000,
-                name:    'publish',
-                data:    data
-              }
-              ws.send(JSON.stringify(payload));
-            })
-            .catch(e => {
-              console.log('setLocalDescription failed: ', e);
-            })
-        }).catch(e => {
-          console.log('createOffer Failed: ', e)
-        });
+            //support for stereo
+            desc.sdp = desc.sdp.replace("useinbandfec=1", "useinbandfec=1; stereo=1");
+
+            //optional support for simulcast
+            if(useSimulcast == true && codec != 'vp9'){
+              desc.sdp = setSimulcast(desc);
+              // console.log('simulcast SDP:',desc.sdp);
+            }
+
+            //set local description and send offer to media server via ws.
+            pc.setLocalDescription(desc)
+              .then(() => {
+                console.log('setLocalDescription Success !:', streamName);
+                //set required information for media server.
+                let data = {
+                  name:  streamName,
+                  sdp:   desc.sdp,
+                  codec: codec//'h264'
+                }
+                //create payload
+                let payload = {
+                  type:    "cmd",
+                  transId: Math.random() * 10000,
+                  name:    'publish',
+                  data:    data
+                }
+                ws.send(JSON.stringify(payload));
+              })
+              .catch(e => {
+                console.log('setLocalDescription failed: ', e);
+              })
+          }).catch(e => {
+            console.log('createOffer Failed: ', e)
+          });
       }
 
       ws.addEventListener('message', evt => {
@@ -241,7 +256,7 @@
               remotesdp = remotesdp.split('\n').filter(function (line) {
                 return line.trim() !== 'a=extmap-allow-mixed';
               }).join('\n');
-              console.log('trimed a=extmap-allow-mixed - sdp \n',remotesdp);
+              // console.log('trimed a=extmap-allow-mixed - sdp \n',remotesdp);
             }
 
             let answer = new RTCSessionDescription(
@@ -251,9 +266,15 @@
             );
 
             pc.setRemoteDescription(answer)
+              //brodcast begin
               .then(d => {
                 console.log('setRemoteDescription Success! ');
+                isBroadcasting = true;
                 showViewURL();
+                onBroadcasting();
+
+                //hide form
+                document.getElementById('form').setAttribute("style", "display: none;");
               })
               .catch(e => {
                 console.log('setRemoteDescription failed: ', e);
@@ -266,6 +287,91 @@
     });
   }
 
+  function onBroadcasting(){
+    console.log('broadcasting:',isBroadcasting);
+    
+    //Update publish button.
+    btn.innerHTML = isBroadcasting ? 'STOP PUBLISHING' : 'START PUBLISH';
+    // btn.disabled  = true;
+  }
+
+  function setSimulcast(offer) {
+    ///// temporary patch for now
+    let isChromium = window.chrome;
+    let winNav = window.navigator;
+    let vendorName = winNav.vendor;
+    let agent = winNav.userAgent.toLowerCase();
+    let isOpera = typeof window.opr !== "undefined";
+    let isIEedge = agent.indexOf("edge") > -1;
+    // let isEdgium = agent.indexOf("edg") > -1;
+    let isIOSChrome = agent.match("crios");
+
+    let isChrome = false;
+    if (isIOSChrome) {
+    } else if( isChromium !== null && typeof isChromium !== "undefined" &&
+                vendorName === "Google Inc." && isOpera === false &&
+                isIEedge === false) {/*  && isEdgium === false */
+      // is Google Chrome
+      isChrome = true;
+    }
+
+    try {
+      if(isChrome){
+        //Get sdp
+        let sdp = offer.sdp;
+        //OK, chrome way
+        const reg1 = RegExp("m=video.*\?a=ssrc:(\\d*) cname:(.+?)\\r\\n","s");
+        const reg2 = RegExp("m=video.*\?a=ssrc:(\\d*) mslabel:(.+?)\\r\\n","s");
+        const reg3 = RegExp("m=video.*\?a=ssrc:(\\d*) msid:(.+?)\\r\\n","s");
+        const reg4 = RegExp("m=video.*\?a=ssrc:(\\d*) label:(.+?)\\r\\n","s");
+        //Get ssrc and cname
+        let res = reg1.exec(sdp);
+        const ssrc = res[1];
+        const cname = res[2];
+        //Get other params
+        const mslabel = reg2.exec(sdp)[2];
+        const msid = reg3.exec(sdp)[2];
+        const label = reg4.exec(sdp)[2];
+        //Add simulcasts ssrcs
+        const num = 2;
+        const ssrcs = [ssrc];
+        for (let i=0;i<num;++i) {
+          //Create new ssrcs
+          const ssrc = 100+i*2;
+          const rtx   = ssrc+1;
+          //Add to ssrc list
+          ssrcs.push(ssrc);
+          //Add sdp stuff
+          sdp +=	"a=ssrc-group:FID " + ssrc + " " + rtx + "\r\n" +
+            "a=ssrc:" + ssrc + " cname:" + cname + "\r\n" +
+            "a=ssrc:" + ssrc + " msid:" + msid + "\r\n" +
+            "a=ssrc:" + ssrc + " mslabel:" + mslabel + "\r\n" +
+            "a=ssrc:" + ssrc + " label:" + label + "\r\n" +
+            "a=ssrc:" + rtx + " cname:" + cname + "\r\n" +
+            "a=ssrc:" + rtx + " msid:" + msid + "\r\n" +
+            "a=ssrc:" + rtx + " mslabel:" + mslabel + "\r\n" +
+            "a=ssrc:" + rtx + " label:" + label + "\r\n";
+        }
+        //Conference flag
+        sdp += "a=x-google-flag:conference\r\n";
+        //Add SIM group
+        sdp += "a=ssrc-group:SIM " + ssrcs.join(" ") + "\r\n";
+        //Update sdp in offer without the rid stuff
+        offer.sdp = sdp;
+        //Add RID equivalent to send it to the sfu
+        sdp += "a=simulcast:send a;b;c\r\n";
+        sdp += "a=rid:a send ssrc="+ssrcs[2]+"\r\n";
+        sdp += "a=rid:b send ssrc="+ssrcs[1]+"\r\n";
+        sdp += "a=rid:c send ssrc="+ssrcs[0]+"\r\n";
+        //Set it back
+        // offer.sdp = sdp;
+        console.log('* simulcast set!');
+      }
+    } catch(e) {
+      console.error(e);
+    }
+    return offer.sdp;
+  }
   // Gets ice servers.
   function getICEServers() {
     return new Promise((resolve, reject) => {
@@ -333,7 +439,7 @@
       //handle stereo request.
       if(stereo && codec == 'h264' || stereo && codec == 'vp8'){
         a = {
-          channelCount: {ideal:2},
+          channelCount: {min:2},
           echoCancellation: false
         }
       }
@@ -361,10 +467,12 @@
           console.log('status:', xhr.status, ' response: ', xhr.responseText);
           switch (xhr.status) {
             case 200:
-              let d = res.data;
-              jwt   = d.jwt;
-              url   = d.urls[0];
-              resolve(d);
+              if( res.status !== 'fail' ){
+                let d = res.data;
+                jwt   = d.jwt;
+                url   = d.urls[0];
+                resolve(d);
+              }
               break;
             default:
               reject(res);
@@ -383,7 +491,7 @@
     //if no viewer stream id is provided, path to viewer not shown.
     if (!!accountId) {
       let vTxt = document.getElementById('viewerUrl');
-      let href = !!viewURL ? viewURL : (location.href).split('?')[0];
+      let href = (location.href).split('?')[0];
       console.log('href:', href, ', indexOF ', href.indexOf('htm'), 'lastindex /', href.lastIndexOf('/'));
       if (href.indexOf('htm') > -1) {
         href = href.substring(0, href.lastIndexOf('/') + 1);
@@ -393,13 +501,6 @@
       vTxt.setAttribute('href', url);
     }
 
-    //disable publish button.
-    let btn       = document.getElementById('publishBtn');
-    btn.innerHTML = 'BROADCASTING LIVE';
-    btn.disabled  = true;
-
-    //hide form
-    document.getElementById('form').setAttribute("style", "display: none;");
   }
 
   //sets required data to broadcast and view.
@@ -424,7 +525,7 @@
       for (i = 0; i < l; i++) {
         let item = views[i];
         let txt  = document.getElementById(item.form);
-        console.log('item ', item, ' txt:', txt);
+        // console.log('item ', item, ' txt:', txt);
         switch (item.param) {
           case 'token':
             txt.value = !!token ? token : '';
@@ -437,6 +538,8 @@
             break;
         }
       }
+    } else {
+      showViewURL();
     }
     if (token) {// && !!url
       updateMillicastAuth()
@@ -473,7 +576,7 @@
   //START
 
   function ready() {
-    console.log('Millicast token: ', token);
+    // console.log('Millicast token: ', token);
     //sets required data to broadcast and view.
     setParams();
 
@@ -481,7 +584,11 @@
     let pubBtn = document.getElementById('publishBtn');
     if (pubBtn) {
       pubBtn.onclick = evt => {
-        startBroadcast();
+        if(isBroadcasting == false){
+          startBroadcast();
+        } else {
+          stopBroadcast();
+        }
       };
     }
 
