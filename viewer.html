@@ -52,6 +52,22 @@
           color: white;
           pointer-events: none;
         }
+        #userCntView {
+          position: absolute;
+          color: white;
+          right: 12px;
+          top: 12px;
+          z-index: 3;
+          background-color: black;
+          border-radius: 3px;
+          padding: 10px 15px;
+          
+          display: none;
+        }
+        #userCntView #count {
+          margin: 0;
+          font-size: 13px;
+        }
     </style>
 
 </head>
@@ -63,12 +79,20 @@
 <div id="container">
   <video muted autoplay playsinline></video>
 </div>
+
+<div id="userCntView"><p id="count">viewing: 00</p></div>
+
 <div id="msgView">
   <h3 id="msgOverlay">One Moment...</h3>
 </div>
 <!-- <h3 style="position: absolute; left: 10px; bottom: 10px;">THIS IS A TEST!!</h3> -->
 
+<script src="usercount.js"></script>
+
 <script>
+  const apiPath  = 'https://director.millicast.com/api/director/subscribe';
+  const turnUrl  = 'https://turn.millicast.com/webrtc/_turn';
+
   let params     = new URLSearchParams(document.location.search.substring(1));
   let accountId  = params.get('accountId');
   let streamName = params.get('streamName');
@@ -78,22 +102,22 @@
 
   //Millicast required info.
   let url;// path to Millicast Server - Returned from API
-  let jwt;//authorization token - Returned from API
+  let jwt;// authorization token - Returned from API
 
   let pc;//peer connection
   let ws;//live websocket
   let reconn = false;// flag for reconnection
 
-  const apiPath  = 'https://director.millicast.com/api/director/subscribe';
-  const turnUrl  = 'https://turn.millicast.com/webrtc/_turn';
   //Ice Servers:
   let iceServers = [];
+
+  //show user count
+  let showUserCount = true;
 
   function connect() {
     reconn = false;
     if (!url) {
       showMsg('Authenticating...');
-      console.log('connect need path to server - url:', url);
       updateMillicastAuth()
         .then(d => {
           connect();
@@ -101,7 +125,7 @@
         .catch(e => {
           console.log('api error: ', e);
           showMsg(e.status+': '+e.data.message);
-          alert("Error: The API encountered an error ", e);
+          // alert("Error: The API encountered an error ", e);
         });
       return;
     }
@@ -115,7 +139,7 @@
       rtcpMuxPolicy: "require",
       bundlePolicy:  "max-bundle"
     };
-    console.log('config: ', conf);
+    // console.log('config: ', conf);
     pc     = new RTCPeerConnection(conf);
     //Listen for track once it starts playing.
     pc.ontrack = function (event) {
@@ -131,14 +155,27 @@
       console.log('PC state:',pc.connectionState);
       switch(pc.connectionState) {
         case "connected":
+
+          if(!ws_cnt && showUserCount){
+            //show user count.
+            let el = document.getElementById('userCntView');
+            if(window.getComputedStyle(el, null).display === 'none'){
+              el.style.display = 'unset';
+            }
+            
+            startUserCount(accountId, streamName, document.getElementById('count'));
+          }
+
           break;
         case "disconnected":
+          // stopUserCount();
         case "failed":
           break;
         case "closed":
           console.log('WS onclose ',reconn);
           // Connection closed, if reconnecting? reset and call again.
           if(reconn){
+            stopUserCount();
             pc = null;
             if(!ws){
               connect();
@@ -154,7 +191,6 @@
     ws.onopen = function () {
       //Connect to our media server via WebRTC
       console.log('ws::onopen');
-
       //create a WebRTC offer to send to the media server
       let offer = pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true })
         .then(desc => {
