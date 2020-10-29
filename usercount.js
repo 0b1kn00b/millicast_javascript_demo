@@ -1,4 +1,4 @@
-const userCountURL = 'wss://streamevents-dev.millicast.com/ws';
+const userCountURL = 'wss://streamevents.millicast.com/ws';
 const recordSeparator = '\x1E';//parsing seperator for usercount msgs.
 
 //User Count data
