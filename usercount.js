@@ -32,7 +32,7 @@ function startUserCount(acct, name, viewTarget){
       handleHandshakeResponse(evt.data);
 
       console.log('Invoking method to watch view count');
-      subscribeStreamCount(ws, streamId);
+      subscribeStreamCount(ws_cnt, streamId);
       return;
     }
 
@@ -81,7 +81,7 @@ function startUserCount(acct, name, viewTarget){
       protocol: "json",
       version: 1
     };
-    sendSignalRMessage(ws, JSON.stringify(handshakeRequest));
+    sendSignalRMessage(ws_cnt, JSON.stringify(handshakeRequest));
   };
 
 }
@@ -121,7 +121,7 @@ function sendSignalRMessage(ws, messageStr) {
     messageStr += recordSeparator;
   }
   console.log('sendSignalRMessage ',messageStr);
-  ws_cnt.send(messageStr);
+  ws.send(messageStr);
 }
 
 function stopUserCount(){
